@@ -1,7 +1,6 @@
 /**
  * GitHub Proxy Worker
  * 自动代理 GitHub 及其相关资源
- * 支持任意自定义域名
  */
 
 export default {
@@ -23,22 +22,31 @@ export default {
       'clone.githubusercontent.com'
     ];
 
-    // 判断是否是对 GitHub 的请求
-    const isGitHubRequest = GITHUB_HOSTS.some(host => 
+    // 判断是否是对 GitHub 原始域名的直接请求
+    const isGitHubHost = GITHUB_HOSTS.some(host => 
       incomingHost === host || incomingHost.endsWith('.' + host)
     );
 
     let targetUrl;
 
-    if (isGitHubRequest) {
-      // 如果请求直接访问 GitHub 域名（如在某些网络环境下直接使用）
+    if (isGitHubHost) {
+      // 直接访问 GitHub 域名
       targetUrl = new URL(request.url);
     } else {
-      // 自定义域名访问，如 user.github.io 或自定义域名
-      // 尝试从 Host 头推断目标
-      targetUrl = new URL(request.url);
-      targetUrl.hostname = 'github.com';
-      targetUrl.pathname = '/' + incomingHost + url.pathname;
+      // 自定义域名或 workers.dev 域名访问
+      // 解析路径：/owner/repo 或 /owner/repo/path/to/file
+      const pathParts = url.pathname.split('/').filter(p => p);
+      
+      if (pathParts.length >= 2) {
+        // 看起来像 /owner/repo/...
+        targetUrl = new URL(`https://github.com${url.pathname}${url.search}`);
+      } else if (pathParts.length === 1) {
+        // 只有一个部分，可能是用户名
+        targetUrl = new URL(`https://github.com/${pathParts[0]}${url.search}`);
+      } else {
+        // 根路径，返回 GitHub 首页
+        targetUrl = new URL(`https://github.com${url.pathname}${url.search}`);
+      }
     }
 
     // 构建转发请求
