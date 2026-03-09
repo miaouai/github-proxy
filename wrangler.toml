@@ -1,0 +1,11 @@
+name = "github-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# 部署说明：
+# 1. 运行 `wrangler login` 登录 Cloudflare
+# 2. 运行 `wrangler deploy` 部署 Worker
+# 3. 在 Cloudflare 控制台添加路由或绑定自定义域名
+
+[env.production]
+# 生产环境配置（如需要）
