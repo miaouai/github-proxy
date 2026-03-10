@@ -1,16 +1,15 @@
 /**
- * GitHub Proxy Worker v2.2
+ * GitHub Proxy Worker v2.2.2
  * /gh 路径代理到 GitHub，根路径显示展示页
  * 避免 Cloudflare 钓鱼警告
  * 
- * v2.2 修复：
- * - 🔥 修复 HTML 内部链接不重写问题（导航栏、仓库链接等）
- * - 🔗 完整链接重写：github.com/user/repo → your-domain.com/gh/github.com/user/repo
- * - 🎯 智能处理 href/src/style/script 等多种标签属性
+ * v2.2.2 修复：
+ * - 🔥 修复链接重写逻辑：github.com/user/repo → your-domain.com/gh/user/repo
+ * - ❌ 之前错误：github.com/user/repo → your-domain.com/gh/github.com/user/repo (导致 404)
+ * - ✅ 正确做法：去掉 github.com 域名，保留原始路径，直接加 /gh 前缀
  * 
- * v2.1 修复：
- * - 🐱 优化 HTML 链接重写逻辑，支持头像等静态资源正常加载
- * - 🛡️ 严格路由策略：只有 /gh 路径才代理 GitHub，其他返回 404
+ * v2.2: 完整 HTML 链接重写，支持导航栏、仓库链接等内部跳转
+ * v2.1: 安全增强，只有 /gh 路径才代理
  */
 
 // ============ 防限流配置 ============
@@ -192,9 +191,9 @@ export default {
       incomingHost === host || incomingHost.endsWith('.' + host)
     );
 
-    // 如果是直接请求 GitHub 域名，直接代理
+    // 如果是直接请求 GitHub 域名，直接代理（不重写链接）
     if (isGitHubHost) {
-      return await proxyToGitHub(request, incomingHost, null, false);
+      return await proxyToGitHub(request, incomingHost);
     }
 
     // 自定义域名或 workers.dev 域名访问
@@ -218,7 +217,7 @@ export default {
       }
       
       const targetUrl = new URL(`https://github.com${githubPath}${url.search}`);
-      return await proxyToGitHub(request, incomingHost, targetUrl, true);
+      return await proxyToGitHub(request, incomingHost, targetUrl);
     }
 
     // 🔥 其他路径返回 404 或引导页（避免被 CF 判定为钓鱼网站）
@@ -280,8 +279,8 @@ export default {
   }
 };
 
-// 代理到 GitHub 的通用函数
-async function proxyToGitHub(request, incomingHost, targetUrl = null, isProxyPath = false) {
+// 代理到 GitHub 的通用函数（自动重写 HTML 链接）
+async function proxyToGitHub(request, incomingHost, targetUrl = null) {
   const url = new URL(request.url);
   
   if (!targetUrl) {
@@ -410,71 +409,48 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null, isProxyPat
       return new Response(null, { status: 204, headers: responseHeaders });
     }
 
-    // 🔥 重写 HTML 中的所有 GitHub 链接（增强版）
+    // 🔥 重写 HTML 中的所有 GitHub 链接（v2.2.2）
     const contentType = responseHeaders.get('Content-Type') || '';
     if (contentType.includes('text/html')) {
       const html = await response.text();
       let newHtml = html;
       
-      // 🔑 关键：判断是否是通过 /gh 路径访问的
-      const isThroughProxyPath = isProxyPath;  // 使用传递的参数
-      
-      if (isThroughProxyPath) {
-        // 提取 /gh 后面的基础路径（用于相对链接处理）
-        const proxyBase = '/gh';
+      GITHUB_HOSTS.forEach(host => {
+        // 🔥 v2.2.2: 修复链接重写 - github.com/user/repo → your-domain.com/gh/user/repo
+        // 关键：去掉 github.com 域名，保留路径，添加 /gh 前缀
         
-        GITHUB_HOSTS.forEach(host => {
-          // 匹配完整 URL: https?://github.com/xxx
-          // 替换为：https://{incomingHost}/gh/{host}/{path}
-          const fullUrlRegex = new RegExp(
-            `((?:href|src|action|poster|data-src)=["'])https?://${host}(/[^"']*?)("|\')`,
-            'gi'
-          );
-          newHtml = newHtml.replace(fullUrlRegex, `$1https://${incomingHost}${proxyBase}/${host}$2$3`);
-          
-          // 同时处理 data-* 属性中的链接
-          const dataAttrRegex = new RegExp(
-            `(data-[\\w-]+=["'])https?://${host}(/[^"']*?)("|\')`,
-            'gi'
-          );
-          newHtml = newHtml.replace(dataAttrRegex, `$1https://${incomingHost}${proxyBase}/${host}$2$3`);
-        });
-      }
+        const fullUrlRegex = new RegExp(
+          `((?:href|src|action|poster|data-src)=["'])https?://${host}(/[^"']*?)("|\')`,
+          'gi'
+        );
+        newHtml = newHtml.replace(fullUrlRegex, `$1https://${incomingHost}/gh$2$3`);
+        
+        const dataAttrRegex = new RegExp(
+          `(data-[\\w-]+=["'])https?://${host}(/[^"']*?)("|\')`,
+          'gi'
+        );
+        newHtml = newHtml.replace(dataAttrRegex, `$1https://${incomingHost}/gh$2$3`);
+      });
       
-      // 🎨 处理 style 属性中的 url() - 静态资源也需要重写
+      // 🎨 处理 style 属性中的 url()
       GITHUB_HOSTS.forEach(host => {
         const styleRegex = new RegExp(
           `(url\\(["\']?)https?://${host}(/[^)"\']*)["\']?\\)`,
           'gi'
         );
+        newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}/gh$2)`);
         
-        if (isProxyPath) {
-          // 代理模式下，加上 /gh 前缀
-          newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}/gh/${host}$2)`);
-        } else {
-          // 非代理模式，直接替换域名
-          newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}$2)`);
-        }
-      });
-      
-      // 📜 处理 @import
-      GITHUB_HOSTS.forEach(host => {
+        // 📜 处理 @import
         const importRegex = new RegExp(
           `@import ["\']https?://${host}(/[^"\']*)["\']`,
           'gi'
         );
-        
-        if (isThroughProxyPath) {
-          newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}/gh/${host}$1"`);
-        } else {
-          newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}$1"`);
-        }
+        newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}/gh$1"`);
       });
       
-      // 🔧 处理 script 标签内嵌的 JSON 数据（GitHub 大量使用这种模式）
+      // 🔧 处理 script 标签内嵌的 JSON 数据
       const scriptDataRegex = /(<script[^>]*>)([\s\S]*?)(<\/script>)/gi;
       newHtml = newHtml.replace(scriptDataRegex, (match, openingTag, content, closingTag) => {
-        // 检测是否是数据脚本（包含 URL 的 JSON）
         if (!content.includes('http')) return match;
         
         let newContent = content;
@@ -483,12 +459,7 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null, isProxyPat
             `(https?)://${host}(/[^"'\s<>}]+)`,
             'gi'
           );
-          
-          if (isThroughProxyPath) {
-            newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh/${host}$2`);
-          } else {
-            newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}$2`);
-          }
+          newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh$2`);
         });
         
         return openingTag + newContent + closingTag;
