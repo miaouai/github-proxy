@@ -1,16 +1,15 @@
 /**
- * GitHub Proxy Worker v2.2.3
+ * GitHub Proxy Worker v2.2.4
  * /gh 路径代理到 GitHub，根路径显示展示页
  * 避免 Cloudflare 钓鱼警告
  * 
- * v2.2.3 修复：
- * - 🔥 修复相对路径重写问题（核心修复！）
- * - 之前遗漏：GitHub HTML 中的 <a href="/user/repo"> 和 <form action="/search"> 没有 /gh 前缀
- * - 现在处理：所有以 "/" 开头的相对路径都添加 /gh 前缀
+ * v2.2.4 修复：头像和子域名链接加载问题（核心！）
+ * - 🔥 github.com/user/repo → your-domain.com/gh/user/repo (去掉 github.com)
+ * - ✅ avatars.githubusercontent.com/u/123 → your-domain.com/gh/avatars.githubusercontent.com/u/123 (保留完整子域名)
+ * - 之前的错误把 avatars.githubusercontent.com 整个都当成路径删掉了！
  * 
- * v2.2.2: github.com/user/repo → your-domain.com/gh/user/repo
- * v2.2: 完整 HTML 链接重写
- * v2.1: 安全增强，只有 /gh 路径才代理
+ * v2.2.3: 处理相对路径 /user/repo → your-domain.com/gh/user/repo
+ * v2.2.2: 修复链接重写逻辑
  */
 
 // ============ 防限流配置 ============
@@ -417,19 +416,35 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
       let newHtml = html;
       
       GITHUB_HOSTS.forEach(host => {
-        // 🔥 v2.2.2: 处理完整 URL - github.com/user/repo → your-domain.com/gh/user/repo
+        // 🔥 v2.2.4: 处理完整 URL
+        
+        // 关键：区分 github.com 和其他子域名
+        // - github.com/user/repo → your-domain.com/gh/user/repo (去掉 github.com)
+        // - avatars.githubusercontent.com/u/123 → your-domain.com/gh/avatars.githubusercontent.com/u/123 (保留完整域名)
         
         const fullUrlRegex = new RegExp(
           `((?:href|src|action|poster|data-src)=["'])https?://${host}(/[^"']*?)("|\')`,
           'gi'
         );
-        newHtml = newHtml.replace(fullUrlRegex, `$1https://${incomingHost}/gh$2$3`);
+        
+        if (host === 'github.com' || host === 'www.github.com') {
+          // github.com 去掉域名，直接加 /gh
+          newHtml = newHtml.replace(fullUrlRegex, `$1https://${incomingHost}/gh$2$3`);
+        } else {
+          // 其他子域名保留完整域名路径
+          newHtml = newHtml.replace(fullUrlRegex, `$1https://${incomingHost}/gh/${host}$2$3`);
+        }
         
         const dataAttrRegex = new RegExp(
           `(data-[\\w-]+=["'])https?://${host}(/[^"']*?)("|\')`,
           'gi'
         );
-        newHtml = newHtml.replace(dataAttrRegex, `$1https://${incomingHost}/gh$2$3`);
+        
+        if (host === 'github.com' || host === 'www.github.com') {
+          newHtml = newHtml.replace(dataAttrRegex, `$1https://${incomingHost}/gh$2$3`);
+        } else {
+          newHtml = newHtml.replace(dataAttrRegex, `$1https://${incomingHost}/gh/${host}$2$3`);
+        }
       });
       
       // 🔥 v2.2.3: 处理相对路径 /user/repo → your-domain.com/gh/user/repo
@@ -449,14 +464,24 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
           `(url\\(["\']?)https?://${host}(/[^)"\']*)["\']?\\)`,
           'gi'
         );
-        newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}/gh$2)`);
+        
+        if (host === 'github.com' || host === 'www.github.com') {
+          newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}/gh$2)`);
+        } else {
+          newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}/gh/${host}$2)`);
+        }
         
         // 📜 处理 @import
         const importRegex = new RegExp(
           `@import ["\']https?://${host}(/[^"\']*)["\']`,
           'gi'
         );
-        newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}/gh$1"`);
+        
+        if (host === 'github.com' || host === 'www.github.com') {
+          newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}/gh$1"`);
+        } else {
+          newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}/gh/${host}$1"`);
+        }
       });
       
       // 🔧 处理 script 标签内嵌的 JSON 数据
@@ -470,7 +495,12 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
             `(https?)://${host}(/[^"'\s<>}]+)`,
             'gi'
           );
-          newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh$2`);
+          
+          if (host === 'github.com' || host === 'www.github.com') {
+            newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh$2`);
+          } else {
+            newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh/${host}$2`);
+          }
         });
         
         // 同时处理脚本内的相对路径
