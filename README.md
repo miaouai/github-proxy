@@ -1,12 +1,14 @@
-# 🐱 GitHub Proxy Worker
+# 🐱 GitHub Proxy Worker v2.0
 
-使用 Cloudflare Worker 代理 GitHub，解决中国大陆访问困难问题。支持 GitHub 主站、Raw 文件、Release 下载、Gist、头像等所有功能。
+使用 Cloudflare Worker 代理 GitHub，解决中国大陆访问困难问题。**v2.0 全新架构，避免 Cloudflare 钓鱼警告！**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare%20Workers-orange)
 
 ## ✨ 特性
 
+- ✅ **v2.0 新架构** - `/gh` 路径代理，避免钓鱼警告
+- ✅ **精美展示页** - 根路径显示介绍页，大 GitHub 图标可点击
 - ✅ **GitHub 主站代理** - 浏览仓库、Issue、PR
 - ✅ **Raw 文件代理** - 直接访问源代码文件
 - ✅ **Release 下载代理** - 下载 Release 版本包
@@ -55,10 +57,11 @@ wrangler deploy
 |------|------|------|----------|
 | CNAME | `github` | `your-worker.your-account.workers.dev` | Proxied (橙色云朵) |
 
-访问效果：
-- `https://github.yourdomain.com` → GitHub 首页
-- `https://github.yourdomain.com/miaouai/github-proxy` → 项目页面
-- `https://raw.githubusercontent.com/owner/repo/main/file.txt` → Raw 文件
+**访问效果（v2.0）：**
+- `https://github.yourdomain.com` → 展示页（有 GitHub 图标）
+- `https://github.yourdomain.com/gh` → GitHub 首页
+- `https://github.yourdomain.com/gh/miaouai/github-proxy` → 项目页面
+- `https://raw.githubusercontent.com/owner/repo/main/file.txt` → Raw 文件（自动代理）
 
 ### 方式二：在 wrangler.toml 中配置路由
 
@@ -68,48 +71,52 @@ routes = [
 ]
 ```
 
-## 📝 使用示例
+## 📝 使用示例 (v2.0)
 
 ### 网页访问
 
 ```
-# GitHub 首页
+# 展示页（介绍页面，有 GitHub 图标）
 https://your-domain.com/
 
+# 访问 GitHub 首页（点击 GitHub 图标或访问 /gh）
+https://your-domain.com/gh
+
 # 查看仓库
-https://your-domain.com/octocat/Hello-World
+https://your-domain.com/gh/octocat/Hello-World
 
 # 查看 Issue
-https://your-domain.com/octocat/Hello-World/issues
+https://your-domain.com/gh/octocat/Hello-World/issues
 
 # 查看 PR
-https://your-domain.com/octocat/Hello-World/pulls
+https://your-domain.com/gh/octocat/Hello-World/pulls
 ```
 
 ### Git 克隆
 
 ```bash
 # HTTPS Clone
-git clone https://your-domain.com/owner/repo.git
+git clone https://your-domain.com/gh/owner/repo.git
 
 # 也可以直接写完整 URL
-git clone https://your-domain.com/miaouai/github-proxy.git
+git clone https://your-domain.com/gh/miaouai/github-proxy.git
 ```
 
 ### Raw 文件访问
 
 ```
-# 访问源码文件
-https://your-domain.com/raw.githubusercontent.com/owner/repo/main/src.js
-或
+# 方式 A - 通过 /gh 路径
+https://your-domain.com/gh/raw.githubusercontent.com/owner/repo/main/src.js
+
+# 方式 B - 直接使用原始域名（自动代理到 GitHub）
 https://raw.githubusercontent.com/owner/repo/main/src.js
 ```
 
 ### Release 下载
 
 ```
-# 下载 Release 包（自动通过 objects.githubusercontent.com）
-https://your-domain.com/owner/repo/releases/download/v1.0/release.tar.gz
+# 下载 Release 包（通过 objects.githubusercontent.com）
+https://your-domain.com/gh/objects.githubusercontent.com/owner/repo/releases/download/v1.0/release.tar.gz
 ```
 
 ## 🛠️ 支持的域名列表
@@ -148,14 +155,16 @@ compatibility_date = "2024-01-01"
 
 推荐使用最新的稳定版本。
 
-## 🎨 Pages 部署
+## 🎨 展示页说明
 
-此仓库包含一个简单的 `index.html` 欢迎页面！启用 GitHub Pages 后访问：
+v2.0 版本包含精美的 `index.html` 展示页！根路径会显示：
 
-```bash
-# 在 Cloudflare Dashboard 开启 Pages
-# 或手动设置 Workers 默认路由为 index.html
-```
+- 🖼️ **大 GitHub 图标** - 悬停动画效果
+- 👆 **点击跳转** - 直接访问 `/gh` 代理 GitHub
+- 📋 **功能列表** - 支持的域名和用途说明
+- 💡 **使用示例** - 常见 URL 格式参考
+
+展示页会自动加载在根路径 `https://your-domain.com/`。
 
 ## 🌟 工作原理
 
@@ -180,13 +189,16 @@ compatibility_date = "2024-01-01"
 2. 确认 DNS 记录已配置正确
 3. 检查 Cloudflare 控制台中的 Routes 配置
 
-### Git clone 失败
+### Git clone 失败 (v2.0)
 
-确保使用正确的 URL 格式：
+**重要：** v2.0 使用 `/gh` 路径，确保 URL 格式正确：
+
 ```bash
+# 正确的格式
+git clone https://your-domain.com/gh/owner/repo.git
+
+# ❌ 错误（旧版本用法，已废弃）
 git clone https://your-domain.com/owner/repo.git
-# 不是
-git clone https://github.uiai.fun/owner/repo.git
 ```
 
 ### 访问被拒绝
@@ -194,6 +206,12 @@ git clone https://github.uiai.fun/owner/repo.git
 1. 尝试清除浏览器缓存
 2. 检查用户代理（User-Agent）是否被识别
 3. 可能需要等待几分钟让网络波动恢复
+
+### Cloudflare 钓鱼警告
+
+如遇到 Cloudflare 安全提示，可能是因为：
+- 使用了旧的 URL 格式（根路径直接代理 GitHub）
+- **解决方案：升级到 v2.0，使用 `/gh` 路径**
 
 ## 📄 License
 
@@ -205,4 +223,57 @@ MIT License - 自由使用、修改和分发
 
 ---
 
-**Deployed with ❤️ using Cloudflare Workers**
+**Deployed with ❤️ using Cloudflare Workers | v2.0 - Safe & Fast**
+
+## 🔄 从旧版本升级到 v2.0（重要！）
+
+### ⚠️ URL 变更说明
+
+| 项目 | 旧版本 (v1.x) | **新版本 (v2.0)** |
+|------|--------------|------------------|
+| 根路径行为 | 直接代理 GitHub | **显示精美展示页** |
+| GitHub 主页 | `/` 或 `/owner/repo` | **`/gh` 和 `/gh/owner/repo`** |
+| Cloudflare 安全 | ⚠️ 可能被标记为钓鱼 | ✅ **避免钓鱼警告** |
+
+### v2.0 URL 示例
+
+```
+# 展示页 - 有介绍和大 GitHub 图标
+https://your-domain.com/
+
+# GitHub 首页
+https://your-domain.com/gh
+
+# 访问仓库
+https://your-domain.com/gh/miaouai/github-proxy
+
+# Git clone
+git clone https://your-domain.com/gh/owner/repo.git
+
+# Raw 文件
+https://your-domain.com/gh/raw.githubusercontent.com/owner/repo/main/file.txt
+```
+
+### 升级步骤
+
+1. 拉取最新代码：
+   ```bash
+   git pull origin main
+   ```
+
+2. 重新部署 Worker：
+   ```bash
+   wrangler deploy
+   ```
+
+3. **重要**：更新所有书签和脚本中的 URL，将旧格式改为 `/gh` 前缀的新格式
+
+### 兼容性说明
+
+- ❌ 旧版 `https://域名/owner/repo` URL 不再工作
+- ✅ 但 `raw.githubusercontent.com` 等原始域名仍可直接访问（Worker 会自动代理）
+- 💡 建议将所有自定义域名（raw, objects, avatars 等）都绑定到同一 Worker
+
+---
+
+**Deployed with ❤️ using Cloudflare Workers | v2.0 - Safe & Fast**

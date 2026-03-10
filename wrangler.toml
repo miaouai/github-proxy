@@ -2,10 +2,52 @@ name = "github"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-# 部署说明：
-# 1. 运行 `wrangler login` 登录 Cloudflare
-# 2. 运行 `wrangler deploy` 部署 Worker
-# 3. 在 Cloudflare 控制台添加路由或绑定自定义域名
+# ============================================
+# GitHub Proxy v2.0 - Cloudflare Worker 配置
+# ============================================
 
+# 部署步骤：
+# 1. wrangler login        # 登录 Cloudflare
+# 2. wrangler deploy       # 部署 Worker
+# 3. 在 Cloudflare Dashboard 配置域名绑定
+
+# --------------------------------------------
+# 推荐配置方式（两种方式选其一）
+# --------------------------------------------
+
+# 方式 A: 在 Cloudflare Dashboard → Workers Routes 添加路由
+# Route Pattern                    → 指向本 Worker
+# ----------------------------------------------------------
+# yourdomain.com/*                 → github (主域名)
+# raw.yourdomain.com/*             → github (raw 文件)
+# objects.yourdomain.com/*         → github (release/download)  
+# avatars.yourdomain.com/*         → github (头像)
+# gist.yourdomain.com/*            → github (gist 代码片段)
+# api.yourdomain.com/*             → github (API)
+# codeload.yourdomain.com/*        → github (clone/push)
+
+# 方式 B: 在下面添加 routes 配置（不推荐，需重新部署）
+routes = [
+  # 主域名 - v2.0 架构
+  { pattern = "yourdomain.com/*", zone_name = "yourdomain.com" },
+  
+  # GitHub 相关资源域名（可选，根据需求配置）
+  { pattern = "raw.yourdomain.com/*", zone_name = "yourdomain.com" },
+  { pattern = "objects.yourdomain.com/*", zone_name = "yourdomain.com" },
+  { pattern = "avatars.yourdomain.com/*", zone_name = "yourdomain.com" },
+  { pattern = "gist.yourdomain.com/*", zone_name = "yourdomain.com" },
+  { pattern = "api.yourdomain.com/*", zone_name = "yourdomain.com" }
+]
+
+# --------------------------------------------
+# 环境变量配置（可选）
+# --------------------------------------------
+[vars]
+ENVIRONMENT = "production"
+
+# --------------------------------------------
+# 生产环境配置
+# --------------------------------------------
 [env.production]
-# 生产环境配置（如需要）
+name = "github-production"
+# compatibility_date = "2024-01-01"
