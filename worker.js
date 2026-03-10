@@ -194,7 +194,7 @@ export default {
 
     // 如果是直接请求 GitHub 域名，直接代理
     if (isGitHubHost) {
-      return await proxyToGitHub(request, incomingHost);
+      return await proxyToGitHub(request, incomingHost, null, false);
     }
 
     // 自定义域名或 workers.dev 域名访问
@@ -218,7 +218,7 @@ export default {
       }
       
       const targetUrl = new URL(`https://github.com${githubPath}${url.search}`);
-      return await proxyToGitHub(request, incomingHost, targetUrl);
+      return await proxyToGitHub(request, incomingHost, targetUrl, true);
     }
 
     // 🔥 其他路径返回 404 或引导页（避免被 CF 判定为钓鱼网站）
@@ -281,7 +281,7 @@ export default {
 };
 
 // 代理到 GitHub 的通用函数
-async function proxyToGitHub(request, incomingHost, targetUrl = null) {
+async function proxyToGitHub(request, incomingHost, targetUrl = null, isProxyPath = false) {
   const url = new URL(request.url);
   
   if (!targetUrl) {
@@ -417,10 +417,9 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
       let newHtml = html;
       
       // 🔑 关键：判断是否是通过 /gh 路径访问的
-      // 如果是 /gh 路径访问，HTML 中的 github.com 链接需要替换成 your-domain.com/gh/github.com
-      const isProxyPath = pathname.startsWith('/gh');
+      const isThroughProxyPath = isProxyPath;  // 使用传递的参数
       
-      if (isProxyPath) {
+      if (isThroughProxyPath) {
         // 提取 /gh 后面的基础路径（用于相对链接处理）
         const proxyBase = '/gh';
         
@@ -465,7 +464,7 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
           'gi'
         );
         
-        if (isProxyPath) {
+        if (isThroughProxyPath) {
           newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}/gh/${host}$1"`);
         } else {
           newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}$1"`);
@@ -485,7 +484,7 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
             'gi'
           );
           
-          if (isProxyPath) {
+          if (isThroughProxyPath) {
             newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh/${host}$2`);
           } else {
             newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}$2`);
