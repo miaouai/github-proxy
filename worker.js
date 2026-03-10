@@ -1,15 +1,14 @@
 /**
- * GitHub Proxy Worker v2.2.4
+ * GitHub Proxy Worker v2.2.5
  * /gh 路径代理到 GitHub，根路径显示展示页
  * 避免 Cloudflare 钓鱼警告
  * 
- * v2.2.4 修复：头像和子域名链接加载问题（核心！）
- * - 🔥 github.com/user/repo → your-domain.com/gh/user/repo (去掉 github.com)
- * - ✅ avatars.githubusercontent.com/u/123 → your-domain.com/gh/avatars.githubusercontent.com/u/123 (保留完整子域名)
- * - 之前的错误把 avatars.githubusercontent.com 整个都当成路径删掉了！
+ * v2.2.5 修复：增强相对路径重写（v2.2.3 的优化版）
+ * - 🔥 改进正则表达式支持完整的查询参数：?q=test&type=repositories
+ * - 🎯 优化 JSON 数据中的 URL 重写逻辑
  * 
+ * v2.2.4: 头像加载问题 - 区分 github.com 和子域名处理
  * v2.2.3: 处理相对路径 /user/repo → your-domain.com/gh/user/repo
- * v2.2.2: 修复链接重写逻辑
  */
 
 // ============ 防限流配置 ============
@@ -447,12 +446,16 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
         }
       });
       
-      // 🔥 v2.2.3: 处理相对路径 /user/repo → your-domain.com/gh/user/repo
-      // 匹配 href="/*" 但不匹配 "//开头" 或 "http://开头" 或 "https://开头"
-      const relativePathRegex = /((?:href|src|action)=["'])(\/[^"'\s]*?)("|\')/gi;
+      // 🔥 v2.2.5: 处理相对路径 /user/repo → your-domain.com/gh/user/repo
+      // 改进版本：支持更完整的 URL（包括 ?query=&param 等）
+      const relativePathRegex = /((?:href|src|action)=["'])(\/[^\s"'<>]+?)("|\')/gi;
       newHtml = newHtml.replace(relativePathRegex, (match, attr, path, quote) => {
-        // 排除已经是外部链接的情况
+        // 排除已经是外部链接或协议相对链接的情况
         if (path.startsWith('//') || path.includes('://')) {
+          return match;
+        }
+        // 确保路径以 / 开头
+        if (!path.startsWith('/')) {
           return match;
         }
         return `${attr}https://${incomingHost}/gh${path}${quote}`;
@@ -503,9 +506,10 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
           }
         });
         
-        // 同时处理脚本内的相对路径
-        const relativeInScript = /(:"?)(\/[^"'{},:\s]+)("?:)/gi;
-        newContent = newContent.replace(relativeInScript, `$1https://${incomingHost}/gh$2$3`);
+        // v2.2.5: 同时处理脚本内的相对路径（JSON 中的 URL）
+        // 匹配 "url": "/search?q=" 这种格式
+        const relativeInScript = /(:"\s*)(\/[^\s"'{}]+?)(["}\s:,])/gi;
+        newContent = newContent.replace(relativeInScript, `$1"${incomingHost}/gh$2$3`);
         
         return openingTag + newContent + closingTag;
       });
