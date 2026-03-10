@@ -110,6 +110,27 @@ export default {
         });
       }
 
+      // ============ 🔧 新增：重写 HTML 中的链接 ============
+      const contentType = responseHeaders.get('Content-Type') || '';
+      if (contentType.includes('text/html')) {
+        const html = await response.text();
+        let newHtml = html;
+        
+        // 将所有 GitHub 域名的链接替换为代理域名
+        GITHUB_HOSTS.forEach(host => {
+          const regex = new RegExp(`(href|src|data-src|action)=["']https?://${host}/`, 'g');
+          newHtml = newHtml.replace(regex, `$1="https://${incomingHost}/`);
+        });
+        
+        responseHeaders.set('Content-Length', Buffer.byteLength(newHtml, 'utf-8'));
+        
+        return new Response(newHtml, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders
+        });
+      }
+
       return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
