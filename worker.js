@@ -1,7 +1,12 @@
 /**
- * GitHub Proxy Worker v2.0
+ * GitHub Proxy Worker v2.1
  * /gh 路径代理到 GitHub，根路径显示展示页
  * 避免 Cloudflare 钓鱼警告
+ * 
+ * v2.1 修复：
+ * - 修复 HTML 中 GitHub 链接重写正则表达式（支持完整路径匹配）
+ * - 优化头像和静态资源的 CORS 头和缓存策略
+ * - 增强 img src、style url、@import 等多种链接格式的替换
  */
 
 // ============ 防限流配置 ============
@@ -161,7 +166,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
     </div>
     <div class="footer">
         <p>Built with ❤️ by Miaou | MIT License</p>
-        <p>访问 <code>/gh/owner/repo</code> 直接代理 GitHub</p>
+        <p>v2.1 - 仅通过 <code>/gh</code> 路径访问 GitHub</p>
     </div>
     <script>
         document.getElementById('github-link').addEventListener('click', function(e) {
@@ -212,19 +217,62 @@ export default {
       return await proxyToGitHub(request, incomingHost, targetUrl);
     }
 
-    // 其他路径也代理到 GitHub（兼容旧用法）
-    const pathParts = pathname.split('/').filter(p => p);
-    let targetUrl;
-    
-    if (pathParts.length >= 2) {
-      targetUrl = new URL(`https://github.com${pathname}${url.search}`);
-    } else if (pathParts.length === 1) {
-      targetUrl = new URL(`https://github.com/${pathParts[0]}${url.search}`);
-    } else {
-      targetUrl = new URL(`https://github.com${pathname}${url.search}`);
-    }
-    
-    return await proxyToGitHub(request, incomingHost, targetUrl);
+    // 🔥 其他路径返回 404 或引导页（避免被 CF 判定为钓鱼网站）
+    // 只允许 /gh 开头访问 GitHub，增强安全性
+    return new Response(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 Not Found - GitHub Proxy</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 60px 40px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #cb2431; font-size: 4rem; margin: 0; }
+        p { color: #666; font-size: 1.2rem; margin: 20px 0; }
+        a { 
+            color: #0969da; 
+            text-decoration: none; 
+            font-size: 1.1rem;
+            display: inline-block;
+            margin: 10px;
+            padding: 10px 20px;
+            border: 2px solid #0969da;
+            border-radius: 8px;
+        }
+        a:hover { background: #0969da; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>404</h1>
+        <p>🚫 此路径未启用代理</p>
+        <p>本 Worker 仅支持通过 <code>/gh</code> 路径访问 GitHub</p>
+        <a href="/">回到首页</a>
+        <a href="/gh">访问 GitHub</a>
+    </div>
+</body>
+</html>`, {
+      status: 404,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
   }
 };
 
@@ -323,10 +371,29 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
       responseHeaders.set('Location', location);
     }
 
+    // 🔥 针对头像和静态资源，设置更友好的 CORS 和缓存策略
+    const path = url.pathname;
+    const isAvatarOrStatic = /avatars|raw|objects|codeload/.test(incomingHost) || 
+                             /\.(png|jpg|jpeg|gif|svg|ico|css|js)$/i.test(path);
+    
+    if (isAvatarOrStatic) {
+      // 允许跨域访问头像和静态资源
+      responseHeaders.set('Access-Control-Allow-Origin', '*');
+      responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      responseHeaders.set('Access-Control-Allow-Headers', '*');
+      
+      // 延长缓存时间（图片资源）
+      if (!responseHeaders.has('Cache-Control')) {
+        responseHeaders.set('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+      }
+      responseHeaders.set('Vary', 'Accept-Encoding');
+    }
+
     // 移除可能导致问题的 header
     responseHeaders.delete('Content-Encoding');
     responseHeaders.delete('Transfer-Encoding');
-    responseHeaders.delete('Content-Length');
+    // 不要删除 Content-Length，让浏览器正确判断完整性
+    // responseHeaders.delete('Content-Length');
 
     // 设置 CORS
     responseHeaders.set('Access-Control-Allow-Origin', '*');
@@ -339,15 +406,36 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
       return new Response(null, { status: 204, headers: responseHeaders });
     }
 
-    // 重写 HTML 中的链接
+    // 重写 HTML 中的链接（更强大的正则表达式）
     const contentType = responseHeaders.get('Content-Type') || '';
     if (contentType.includes('text/html')) {
       const html = await response.text();
       let newHtml = html;
       
       GITHUB_HOSTS.forEach(host => {
-        const regex = new RegExp(`(href|src|data-src|action)=["']https?://${host}/`, 'g');
-        newHtml = newHtml.replace(regex, `$1="https://${incomingHost}/`);
+        // 匹配 href/src/data-src/action 等属性中的 GitHub 链接
+        // 支持 http 和 https，完整域名匹配
+        const regex = new RegExp(
+          `((?:href|src|data-src|action|poster)=["'])https?://${host}(/[^"']*?)("|\')`,
+          'gi'
+        );
+        newHtml = newHtml.replace(regex, `$1https://${incomingHost}$2$3`);
+      });
+      
+      // 同时处理 style 属性中的 URL() 
+      GITHUB_HOSTS.forEach(host => {
+        const styleRegex = new RegExp(
+          `(url\\(["\']?)https?://${host}(/[^)"\']*)["\']?\\)`,
+          'gi'
+        );
+        newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}$2)`);
+        
+        // 处理 @import
+        const importRegex = new RegExp(
+          `@import ["\']https?://${host}(/[^"\']*)["\']`,
+          'gi'
+        );
+        newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}$1"`);
       });
       
       const encoder = new TextEncoder();
