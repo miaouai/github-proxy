@@ -1,12 +1,16 @@
 /**
- * GitHub Proxy Worker v2.1
+ * GitHub Proxy Worker v2.2
  * /gh 路径代理到 GitHub，根路径显示展示页
  * 避免 Cloudflare 钓鱼警告
  * 
+ * v2.2 修复：
+ * - 🔥 修复 HTML 内部链接不重写问题（导航栏、仓库链接等）
+ * - 🔗 完整链接重写：github.com/user/repo → your-domain.com/gh/github.com/user/repo
+ * - 🎯 智能处理 href/src/style/script 等多种标签属性
+ * 
  * v2.1 修复：
- * - 修复 HTML 中 GitHub 链接重写正则表达式（支持完整路径匹配）
- * - 优化头像和静态资源的 CORS 头和缓存策略
- * - 增强 img src、style url、@import 等多种链接格式的替换
+ * - 🐱 优化 HTML 链接重写逻辑，支持头像等静态资源正常加载
+ * - 🛡️ 严格路由策略：只有 /gh 路径才代理 GitHub，其他返回 404
  */
 
 // ============ 防限流配置 ============
@@ -406,36 +410,89 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
       return new Response(null, { status: 204, headers: responseHeaders });
     }
 
-    // 重写 HTML 中的链接（更强大的正则表达式）
+    // 🔥 重写 HTML 中的所有 GitHub 链接（增强版）
     const contentType = responseHeaders.get('Content-Type') || '';
     if (contentType.includes('text/html')) {
       const html = await response.text();
       let newHtml = html;
       
-      GITHUB_HOSTS.forEach(host => {
-        // 匹配 href/src/data-src/action 等属性中的 GitHub 链接
-        // 支持 http 和 https，完整域名匹配
-        const regex = new RegExp(
-          `((?:href|src|data-src|action|poster)=["'])https?://${host}(/[^"']*?)("|\')`,
-          'gi'
-        );
-        newHtml = newHtml.replace(regex, `$1https://${incomingHost}$2$3`);
-      });
+      // 🔑 关键：判断是否是通过 /gh 路径访问的
+      // 如果是 /gh 路径访问，HTML 中的 github.com 链接需要替换成 your-domain.com/gh/github.com
+      const isProxyPath = pathname.startsWith('/gh');
       
-      // 同时处理 style 属性中的 URL() 
+      if (isProxyPath) {
+        // 提取 /gh 后面的基础路径（用于相对链接处理）
+        const proxyBase = '/gh';
+        
+        GITHUB_HOSTS.forEach(host => {
+          // 匹配完整 URL: https?://github.com/xxx
+          // 替换为：https://{incomingHost}/gh/{host}/{path}
+          const fullUrlRegex = new RegExp(
+            `((?:href|src|action|poster|data-src)=["'])https?://${host}(/[^"']*?)("|\')`,
+            'gi'
+          );
+          newHtml = newHtml.replace(fullUrlRegex, `$1https://${incomingHost}${proxyBase}/${host}$2$3`);
+          
+          // 同时处理 data-* 属性中的链接
+          const dataAttrRegex = new RegExp(
+            `(data-[\\w-]+=["'])https?://${host}(/[^"']*?)("|\')`,
+            'gi'
+          );
+          newHtml = newHtml.replace(dataAttrRegex, `$1https://${incomingHost}${proxyBase}/${host}$2$3`);
+        });
+      }
+      
+      // 🎨 处理 style 属性中的 url() - 静态资源也需要重写
       GITHUB_HOSTS.forEach(host => {
         const styleRegex = new RegExp(
           `(url\\(["\']?)https?://${host}(/[^)"\']*)["\']?\\)`,
           'gi'
         );
-        newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}$2)`);
         
-        // 处理 @import
+        if (isProxyPath) {
+          // 代理模式下，加上 /gh 前缀
+          newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}/gh/${host}$2)`);
+        } else {
+          // 非代理模式，直接替换域名
+          newHtml = newHtml.replace(styleRegex, `url($1https://${incomingHost}$2)`);
+        }
+      });
+      
+      // 📜 处理 @import
+      GITHUB_HOSTS.forEach(host => {
         const importRegex = new RegExp(
           `@import ["\']https?://${host}(/[^"\']*)["\']`,
           'gi'
         );
-        newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}$1"`);
+        
+        if (isProxyPath) {
+          newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}/gh/${host}$1"`);
+        } else {
+          newHtml = newHtml.replace(importRegex, `@import "https://${incomingHost}$1"`);
+        }
+      });
+      
+      // 🔧 处理 script 标签内嵌的 JSON 数据（GitHub 大量使用这种模式）
+      const scriptDataRegex = /(<script[^>]*>)([\s\S]*?)(<\/script>)/gi;
+      newHtml = newHtml.replace(scriptDataRegex, (match, openingTag, content, closingTag) => {
+        // 检测是否是数据脚本（包含 URL 的 JSON）
+        if (!content.includes('http')) return match;
+        
+        let newContent = content;
+        GITHUB_HOSTS.forEach(host => {
+          const scriptLinkRegex = new RegExp(
+            `(https?)://${host}(/[^"'\s<>}]+)`,
+            'gi'
+          );
+          
+          if (isProxyPath) {
+            newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh/${host}$2`);
+          } else {
+            newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}$2`);
+          }
+        });
+        
+        return openingTag + newContent + closingTag;
       });
       
       const encoder = new TextEncoder();

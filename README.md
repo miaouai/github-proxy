@@ -1,4 +1,4 @@
-# 🐱 GitHub Proxy Worker v2.1
+# 🐱 GitHub Proxy Worker v2.2
 
 使用 Cloudflare Worker 代理 GitHub，解决中国大陆访问困难问题。**v2.0 全新架构，避免 Cloudflare 钓鱼警告！**
 
@@ -7,8 +7,9 @@
 
 ## ✨ 特性
 
+- ✅ **v2.2 链接修复** - HTML 内部所有链接（导航栏、仓库链接等）自动重写为代理地址
 - ✅ **v2.1 安全增强** - 仅 `/gh` 路径代理 GitHub，其他路径返回 404（降低 CF 钓鱼风险）
-- ✅ **v2.1 修复** - 优化 HTML 链接重写逻辑，支持头像等静态资源正常加载
+- ✅ **v2.1 头像修复** - 优化 HTML 链接重写逻辑，支持头像等静态资源正常加载
 - ✅ **v2.0 新架构** - `/gh` 路径代理，避免钓鱼警告
 - ✅ **精美展示页** - 根路径显示介绍页，大 GitHub 图标可点击
 - ✅ **GitHub 主站代理** - 浏览仓库、Issue、PR
@@ -59,15 +60,15 @@ wrangler deploy
 |------|------|------|----------|
 | CNAME | `github` | `your-worker.your-account.workers.dev` | Proxied (橙色云朵) |
 
-**访问效果（v2.1）：**
+**访问效果（v2.2）：**
 - `https://github.yourdomain.com` → 展示页（介绍页面）
 - `https://github.yourdomain.com/` → 展示页（介绍页面）
-- `https://github.yourdomain.com/gh` → GitHub 首页 ✅ **仅此路径代理**
+- `https://github.yourdomain.com/gh` → GitHub 首页 ✅ **内部链接自动重写**
 - `https://github.yourdomain.com/gh/miaouai/github-proxy` → 项目页面
-- `https://github.yourdomain.com/other` → **404 Not Found**（安全策略）
+- `https://github.yourdomain.com/gh/github.com/miaouai/repo` → 完整代理路径
 - `https://github.yourdomain.com/random/path` → **404 Not Found**（安全策略）
 
-> 💡 **安全提示**: v2.1 严格限制只有 `/gh` 开头的路径才会代理到 GitHub，其他任意路径都返回 404。这样避免了 Cloudflare 将整个域名判定为钓鱼网站的风险。
+> 💡 **v2.2 重要改进**: GitHub 页面内部的所有链接（导航栏、仓库跳转、用户页面等）都会被重写为 `your-domain.com/gh/github.com/...` 格式，确保所有点击都在代理下工作！
 - `https://raw.githubusercontent.com/owner/repo/main/file.txt` → Raw 文件（自动代理）
 
 ### 方式二：在 wrangler.toml 中配置路由
