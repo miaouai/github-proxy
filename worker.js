@@ -1,14 +1,15 @@
 /**
- * GitHub Proxy Worker v2.2.2
+ * GitHub Proxy Worker v2.2.3
  * /gh 路径代理到 GitHub，根路径显示展示页
  * 避免 Cloudflare 钓鱼警告
  * 
- * v2.2.2 修复：
- * - 🔥 修复链接重写逻辑：github.com/user/repo → your-domain.com/gh/user/repo
- * - ❌ 之前错误：github.com/user/repo → your-domain.com/gh/github.com/user/repo (导致 404)
- * - ✅ 正确做法：去掉 github.com 域名，保留原始路径，直接加 /gh 前缀
+ * v2.2.3 修复：
+ * - 🔥 修复相对路径重写问题（核心修复！）
+ * - 之前遗漏：GitHub HTML 中的 <a href="/user/repo"> 和 <form action="/search"> 没有 /gh 前缀
+ * - 现在处理：所有以 "/" 开头的相对路径都添加 /gh 前缀
  * 
- * v2.2: 完整 HTML 链接重写，支持导航栏、仓库链接等内部跳转
+ * v2.2.2: github.com/user/repo → your-domain.com/gh/user/repo
+ * v2.2: 完整 HTML 链接重写
  * v2.1: 安全增强，只有 /gh 路径才代理
  */
 
@@ -409,15 +410,14 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
       return new Response(null, { status: 204, headers: responseHeaders });
     }
 
-    // 🔥 重写 HTML 中的所有 GitHub 链接（v2.2.2）
+    // 🔥 重写 HTML 中的所有 GitHub 链接（v2.2.3 - 修复相对路径）
     const contentType = responseHeaders.get('Content-Type') || '';
     if (contentType.includes('text/html')) {
       const html = await response.text();
       let newHtml = html;
       
       GITHUB_HOSTS.forEach(host => {
-        // 🔥 v2.2.2: 修复链接重写 - github.com/user/repo → your-domain.com/gh/user/repo
-        // 关键：去掉 github.com 域名，保留路径，添加 /gh 前缀
+        // 🔥 v2.2.2: 处理完整 URL - github.com/user/repo → your-domain.com/gh/user/repo
         
         const fullUrlRegex = new RegExp(
           `((?:href|src|action|poster|data-src)=["'])https?://${host}(/[^"']*?)("|\')`,
@@ -430,6 +430,17 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
           'gi'
         );
         newHtml = newHtml.replace(dataAttrRegex, `$1https://${incomingHost}/gh$2$3`);
+      });
+      
+      // 🔥 v2.2.3: 处理相对路径 /user/repo → your-domain.com/gh/user/repo
+      // 匹配 href="/*" 但不匹配 "//开头" 或 "http://开头" 或 "https://开头"
+      const relativePathRegex = /((?:href|src|action)=["'])(\/[^"'\s]*?)("|\')/gi;
+      newHtml = newHtml.replace(relativePathRegex, (match, attr, path, quote) => {
+        // 排除已经是外部链接的情况
+        if (path.startsWith('//') || path.includes('://')) {
+          return match;
+        }
+        return `${attr}https://${incomingHost}/gh${path}${quote}`;
       });
       
       // 🎨 处理 style 属性中的 url()
@@ -451,7 +462,7 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
       // 🔧 处理 script 标签内嵌的 JSON 数据
       const scriptDataRegex = /(<script[^>]*>)([\s\S]*?)(<\/script>)/gi;
       newHtml = newHtml.replace(scriptDataRegex, (match, openingTag, content, closingTag) => {
-        if (!content.includes('http')) return match;
+        if (!content.includes('http') && !content.includes('/')) return match;
         
         let newContent = content;
         GITHUB_HOSTS.forEach(host => {
@@ -461,6 +472,10 @@ async function proxyToGitHub(request, incomingHost, targetUrl = null) {
           );
           newContent = newContent.replace(scriptLinkRegex, `$1://${incomingHost}/gh$2`);
         });
+        
+        // 同时处理脚本内的相对路径
+        const relativeInScript = /(:"?)(\/[^"'{},:\s]+)("?:)/gi;
+        newContent = newContent.replace(relativeInScript, `$1https://${incomingHost}/gh$2$3`);
         
         return openingTag + newContent + closingTag;
       });
