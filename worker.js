@@ -1,5 +1,5 @@
 /**
- * GitHub Proxy Worker v2.0
+ * GitHub Proxy Worker v2.2
  * 自动代理 GitHub 及其相关资源
  */
 
@@ -9,53 +9,43 @@ export default {
     const incomingHost = url.hostname;
     const requestPath = url.pathname;
 
-    // ============ 敏感路径黑名单 ============
-    // 这些路径可能被 Cloudflare 标记为钓鱼或滥用
+    // ============ 精简后的黑名单 ============
+    // 只屏蔽最容易触发 Cloudflare 警告的真实风险路径
     const BLOCKED_PATHS = [
-      '/sponsors',           // 赞助页面
-      '/features',           // 功能介绍（包含 /features/ai 等）
-      '/marketplace',        // 市场
-      '/login',              // 登录（避免钓鱼）
-      '/signup',             // 注册
+      '/sponsors',           // 赞助 - 高风险
+      '/marketplace',        // 市场 - 高风险  
+      '/login',              // 登录 - 避免钓鱼
+      '/logout',             // 登出 - 会话安全
+      '/signup',             // 注册 - 避免钓鱼
+      '/oauth',              // OAuth 授权
       '/sessions',           // 会话管理
-      '/settings',           // 设置
-      '/notifications',      // 通知
-      '/account',            // 账户
+      '/settings',           // 个人设置
+      '/account',            // 账户管理
       '/security',           // 安全设置
-      '/billing',            // 计费
-      '/organizations',      // 组织管理
-      '/pulls',              // 个人 PR 列表
-      '/issues',             // 个人 Issue 列表
-      '/stars',              // 个人收藏
-      '/following',          // 关注列表
-      '/watching',           // 观看列表
-      '/dashboard',          // 仪表盘
-      '/explore',            // 探索页面
-      '/trending',           // 趋势
-      '/new',                // 新建仓库
+      '/billing',            // 计费信息
+      '/payment',            // 支付
+      '/invitations',        // 邀请页面
+      '/import',             // 导入仓库
     ];
 
-    // 检查是否命中黑名单（精确匹配或前缀匹配）
-    const isBlockedPath = BLOCKED_PATHS.some(blocked => {
-      // features 需要前缀匹配
-      if (blocked === '/features') {
-        return requestPath.startsWith('/features');
-      }
-      // 其他路径精确匹配
-      return requestPath === blocked || requestPath.startsWith(blocked + '/');
-    });
+    // 检查是否命中黑名单
+    const isBlockedPath = BLOCKED_PATHS.some(blocked => 
+      requestPath === blocked || requestPath.startsWith(blocked + '/')
+    );
 
     if (isBlockedPath) {
-      return new Response(`<!-- GitHub Proxy: 该路径已被屏蔽，请访问 GitHub 官网 -->
-<!DOCTYPE html>
+      return new Response(`<!DOCTYPE html>
 <html>
-<head><title>路径已屏蔽</title></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; text-align: center;">
+<head>
+  <title>路径已屏蔽</title>
+  <style>body{font-family:system-ui,sans-serif;padding:40px;text-align:center;color:#24292f}</style>
+</head>
+<body>
   <h1>⚠️ 该路径已被屏蔽</h1>
   <p>出于安全考虑，此路径不通过代理访问。</p>
-  <p>如需访问，请前往 GitHub 官网：<a href="https://github.com${requestPath}">https://github.com${requestPath}</a></p>
-  <hr>
-  <p style="color: #666; font-size: 12px;">屏蔽路径：${requestPath}</p>
+  <p><a href="https://github.com${requestPath}" style="color:#0969da;">点击访问 GitHub 官网</a></p>
+  <hr style="margin:20px 0;border:none;border-top:1px solid #d0d7de;">
+  <p style="color:#57606a;font-size:12px;">屏蔽路径：${requestPath}</p>
 </body>
 </html>`, {
         status: 403,
@@ -67,7 +57,6 @@ export default {
     }
 
     // ============ 域名判断 ============
-    // 判断是否是 GitHub 官方域名
     const GITHUB_DOMAINS = [
       'github.com',
       'www.github.com',
@@ -95,22 +84,18 @@ export default {
       targetHost = incomingHost;
     } else {
       // 通过代理域名访问
-      // 解析路径格式：/domain/path 或 /owner/repo
-      
-      // 简单判断：路径中是否包含 "."来判断是否是域名格式
       const pathParts = requestPath.split('/').filter(p => p);
       
       if (pathParts.length === 0) {
-        // 根路径，返回 GitHub 首页
+        // 根路径
         targetUrl = new URL(`https://github.com${url.search}`);
         targetHost = 'github.com';
       } else {
         const firstPart = pathParts[0];
         
-        // 判断第一部分是否是"域名格式"（包含点号）
-        if (firstPart.includes('.') && !firstPart.includes('git')) {
-          // 域名格式：/any.domain.com/path → 代理 any.domain.com
-          // 这样可以代理任何域名，不限于 GitHub 域名
+        // 判断是否是"域名格式"（包含点号）且不是 git 关键字
+        if (firstPart.includes('.') && !firstPart.toLowerCase().includes('git')) {
+          // 域名格式：/domain.xxx/path → 代理任意域名
           targetHost = firstPart;
           const remainingPath = '/' + pathParts.slice(1).join('/');
           targetUrl = new URL(`https://${targetHost}${remainingPath}${url.search}`);
@@ -172,7 +157,7 @@ export default {
       if (contentType.includes('text/html')) {
         let html = await response.text();
         
-        // 替换常见 GitHub 域名为代理域名
+        // 替换 GitHub 已知域名为代理域名
         GITHUB_DOMAINS.forEach(domain => {
           const regex = new RegExp(`https?://${domain.replace(/\./g, '\\.')}`, 'g');
           html = html.replace(regex, `https://${incomingHost}/${domain}`);
@@ -194,6 +179,7 @@ export default {
       });
 
     } catch (error) {
+      console.error('Proxy error:', error.message);
       return new Response(`Proxy Error: ${error.message}`, {
         status: 502,
         headers: {
