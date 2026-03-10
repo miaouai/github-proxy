@@ -122,7 +122,8 @@ export default {
           newHtml = newHtml.replace(regex, `$1="https://${incomingHost}/`);
         });
         
-        responseHeaders.set('Content-Length', Buffer.byteLength(newHtml, 'utf-8'));
+        const encoder = new TextEncoder();
+        responseHeaders.set('Content-Length', encoder.encode(newHtml).length);
         
         return new Response(newHtml, {
           status: response.status,
