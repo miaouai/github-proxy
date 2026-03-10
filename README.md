@@ -1,174 +1,208 @@
-# 🐱 GitHub Proxy Worker v2.2
+# 🐱 GitHub Proxy Worker
 
-使用 Cloudflare Worker 代理 GitHub，解决中国大陆访问困难问题。
+使用 Cloudflare Worker 代理 GitHub，解决中国大陆访问困难问题。支持 GitHub 主站、Raw 文件、Release 下载、Gist、头像等所有功能。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare%20Workers-orange)
-![Version](https://img.shields.io/badge/Version-2.2-stable)
 
 ## ✨ 特性
 
-- ✅ 代理所有 GitHub 相关域名 + **通用域名支持**
-- ✅ **优化：精简黑名单，只屏蔽高风险路径**
-- ✅ 自动处理重定向链接
-- ✅ CORS 支持
-- ✅ Git clone 无障碍
-- ✅ Release 下载无障碍
-- ✅ 静态资源（CSS/JS/图片）正常加载
+- ✅ **GitHub 主站代理** - 浏览仓库、Issue、PR
+- ✅ **Raw 文件代理** - 直接访问源代码文件
+- ✅ **Release 下载代理** - 下载 Release 版本包
+- ✅ **Git LFS 支持** - 大文件存储对象
+- ✅ **Gist 代理** - Gist 代码片段
+- ✅ **头像代理** - User avatars
+- ✅ **API 支持** - API 调用无障碍
+- ✅ **代码克隆** - Git clone 无障碍
+- ✅ **自动重定向** - 智能处理所有重定向链接
+- ✅ **CORS 支持** - 跨域请求友好
 
-## 🆕 v2.2 更新内容
+## 🚀 快速开始
 
-### 🔓 大幅放宽访问限制
-v2.1 的黑名单过于严格，导致很多公开页面无法访问。**v2.2 已修正：**
-
-| ❌ v2.1 错误屏蔽 | ✅ v2.2 恢复正常 |
-|------------------|----------------|
-| `/explore` | ✅ 探索页面可访问 |
-| `/trending` | ✅ 趋势页面可访问 |
-| `/organizations` | ✅ 组织主页可访问 |
-| `/pulls`, `/issues`, `/stars` | ✅ 全局列表可访问 |
-| `/new` | ✅ 新建仓库可访问 |
-| `/features/*` | ✅ 功能介绍页面可访问 |
-
-### 🔒 现在的黑名单（仅保留高风险路径）
-只屏蔽以下最敏感的账户相关页面：
-
-| 路径 | 原因 |
-|------|------|
-| `/login`, `/signup`, `/logout` | 避免钓鱼风险 |
-| `/oauth`, `/sessions` | OAuth 授权安全 |
-| `/settings`, `/account` | 个人设置隐私 |
-| `/security`, `/billing`, `/payment` | 敏感信息 |
-| `/sponsors`, `/marketplace` | 可能触发警告 |
-| `/invitations`, `/import` | 账户操作 |
-
-### 🎨 图片加载修复
-- 支持通用域名代理 → `your-proxy/any-domain.com/image.png`
-- HTML 自动替换 GitHub 已知域名的链接
-- GitHub CDN、头像、Raw 文件都能正常显示
-
-## 🚀 快速部署
+### 1️⃣ 克隆仓库
 
 ```bash
-# 1. 克隆仓库
 git clone https://github.com/miaouai/github-proxy.git
 cd github-proxy
+```
 
-# 2. 登录 Cloudflare
+### 2️⃣ 登录 Cloudflare
+
+```bash
 wrangler login
+```
 
-# 3. 部署 Worker
+### 3️⃣ 部署 Worker
+
+```bash
 wrangler deploy
 ```
 
-## 📝 使用方法
+部署成功后会返回类似：
+```
+🌀  Your worker has been deployed to:
+     https://github-proxy.your-account.workers.dev
+```
 
-假设你的 Worker 部署在 `https://your-worker.workers.dev`（请替换为你的实际域名）
+## 🔧 配置自定义域名
 
-### 浏览 GitHub 网页
+在 Cloudflare 控制台添加 DNS 记录或使用 Workers Routes：
+
+### 方式一：绑定自定义域名
+
+| 类型 | 名称 | 内容 | 代理状态 |
+|------|------|------|----------|
+| CNAME | `github` | `your-worker.your-account.workers.dev` | Proxied (橙色云朵) |
+
+访问效果：
+- `https://github.yourdomain.com` → GitHub 首页
+- `https://github.yourdomain.com/miaouai/github-proxy` → 项目页面
+- `https://raw.githubusercontent.com/owner/repo/main/file.txt` → Raw 文件
+
+### 方式二：在 wrangler.toml 中配置路由
+
+```toml
+routes = [
+  { pattern = "github.yourdomain.com/*", zone_name = "yourdomain.com" }
+]
+```
+
+## 📝 使用示例
+
+### 网页访问
 
 ```
 # GitHub 首页
-https://your-worker.workers.dev/
+https://your-domain.com/
 
-# 查看仓库（所有公开页面都可正常访问！）
-https://your-worker.workers.dev/owner/repo
-https://your-worker.workers.dev/explore
-https://your-worker.workers.dev/trending
-https://your-worker.workers.dev/organizations
+# 查看仓库
+https://your-domain.com/octocat/Hello-World
 
-# Issue 和 PR
-https://your-worker.workers.dev/owner/repo/issues
-https://your-worker.workers.dev/owner/repo/pulls
+# 查看 Issue
+https://your-domain.com/octocat/Hello-World/issues
+
+# 查看 PR
+https://your-domain.com/octocat/Hello-World/pulls
 ```
 
-### 代理其他域名（通用模式）
-
-```
-# GitHub 静态资源（CSS/JS/图片）
-https://your-worker.workers.dev/github.githubassets.com/assets/xxx.css
-
-# GitHub 头像
-https://your-worker.workers.dev/avatars.githubusercontent.com/u/123456
-
-# Raw 文件
-https://your-worker.workers.dev/raw.githubusercontent.com/owner/repo/main/file.md
-
-# API 调用
-https://your-worker.workers.dev/api.github.com/repos/owner/repo
-
-# 甚至其他网站（实验性功能）
-https://your-worker.workers.dev/example.com/path
-```
-
-### Git Clone
+### Git 克隆
 
 ```bash
-git clone https://your-worker.workers.dev/owner/repo.git
+# HTTPS Clone
+git clone https://your-domain.com/owner/repo.git
+
+# 也可以直接写完整 URL
+git clone https://your-domain.com/miaouai/github-proxy.git
 ```
 
-### 下载 Release 文件
+### Raw 文件访问
 
 ```
-# Release 下载
-https://your-worker.workers.dev/owner/repo/releases/download/v1.0/release.tar.gz
-
-# 源码压缩包
-https://your-worker.workers.dev/owner/repo/archive/refs/tags/v1.0.tar.gz
-
-# 明确指定 objects 域名
-https://your-worker.workers.dev/objects.githubusercontent.com/xxx
+# 访问源码文件
+https://your-domain.com/raw.githubusercontent.com/owner/repo/main/src.js
+或
+https://raw.githubusercontent.com/owner/repo/main/src.js
 ```
 
-## 🌐 支持的域名列表
-
-| 原始域名 | 用途 | 代理格式 |
-|----------|------|---------|
-| `github.com` | 主站 | `/path` 或 `/github.com/path` |
-| `github.githubassets.com` | 静态资源 | `/github.githubassets.com/path` |
-| `avatars.githubusercontent.com` | 头像 | `/avatars.githubusercontent.com/path` |
-| `raw.githubusercontent.com` | Raw 文件 | `/raw.githubusercontent.com/path` |
-| `objects.githubusercontent.com` | Release 文件 | `/objects.githubusercontent.com/path` |
-| `api.github.com` | API | `/api.github.com/path` |
-| `codeload.github.com` | 代码下载 | `/codeload.github.com/path` |
-| **任意域名** | 通用代理 | `/your-domain.com/path` |
-
-## ⚙️ 配置自定义域名
-
-在 Cloudflare 控制台绑定自己的域名：
-
-| 类型 | 名称 | 内容 |
-|------|------|------|
-| CNAME | proxy | your-worker.your-account.workers.dev |
-
-访问效果：
-```
-https://proxy.yourdomain.com/owner/repo
-```
-
-## 🔧 工作原理
+### Release 下载
 
 ```
-用户请求 → 代理域名 → Cloudflare Worker
-                                    ↓
-                    1. 检查黑名单（仅高风险路径）
-                    2. 判断目标域名：
-                       - /owner/repo → github.com
-                       - /domain.xxx/path → domain.xxx (任意域名)
-                    3. 转发到目标服务器 → 返回内容 → 重写 GitHub 链接
+# 下载 Release 包（自动通过 objects.githubusercontent.com）
+https://your-domain.com/owner/repo/releases/download/v1.0/release.tar.gz
 ```
+
+## 🛠️ 支持的域名列表
+
+| 原始域名 | 用途 | 是否代理 |
+|---------|------|---------|
+| `github.com` | 主站 | ✅ |
+| `www.github.com` | 主站 www | ✅ |
+| `raw.githubusercontent.com` | Raw 文件 | ✅ |
+| `objects.githubusercontent.com` | Git LFS / Objects | ✅ |
+| `gist.githubusercontent.com` | Gist | ✅ |
+| `avatars.githubusercontent.com` | 头像 | ✅ |
+| `api.github.com` | API | ✅ |
+| `codeload.github.com` | Code download | ✅ |
+| `clone.githubusercontent.com` | Clone | ✅ |
+
+## ⚙️ 高级配置
+
+### 环境变量
+
+Worker 可以配置环境变量用于自定义行为（可选）：
+
+```toml
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
+```
+
+### 兼容性日期
+
+更新 `wrangler.toml` 中的兼容性日期：
+
+```toml
+compatibility_date = "2024-01-01"
+```
+
+推荐使用最新的稳定版本。
+
+## 🎨 Pages 部署
+
+此仓库包含一个简单的 `index.html` 欢迎页面！启用 GitHub Pages 后访问：
+
+```bash
+# 在 Cloudflare Dashboard 开启 Pages
+# 或手动设置 Workers 默认路由为 index.html
+```
+
+## 🌟 工作原理
+
+1. **智能路由** - 根据 Host 头判断是否为目标域名
+2. **请求转发** - 将请求转发到 GitHub 原始服务器
+3. **响应重写** - 自动重写 Location 头部中的 GitHub 域名
+4. **CORS 支持** - 添加跨域头允许跨站请求
+5. **错误处理** - 友好的错误提示
 
 ## ⚠️ 注意事项
 
-- ✅ **v2.2 已修复**: 公开页面全部可访问，包括 explore/trending/issues/prs 等
-- 🔒 仅屏蔽账户管理和支付等高风险路径
-- 📦 静态资源和图片现在应该能正常加载
-- 💡 建议绑定自定义域名以获得更好的稳定性
+- IP 地址可能随时间变化，部分严格检测的流量可能需要重新验证
+- 建议绑定固定域名以获得更好的稳定性
+- 免费配额：每月 10 万次请求（满足大多数个人需求）
+- 付费计划：无限制且更快的响应速度
+
+## 🐛 故障排查
+
+### 无法访问页面
+
+1. 检查 Worker 是否成功部署
+2. 确认 DNS 记录已配置正确
+3. 检查 Cloudflare 控制台中的 Routes 配置
+
+### Git clone 失败
+
+确保使用正确的 URL 格式：
+```bash
+git clone https://your-domain.com/owner/repo.git
+# 不是
+git clone https://github.uiai.fun/owner/repo.git
+```
+
+### 访问被拒绝
+
+1. 尝试清除浏览器缓存
+2. 检查用户代理（User-Agent）是否被识别
+3. 可能需要等待几分钟让网络波动恢复
 
 ## 📄 License
 
-MIT
+MIT License - 自由使用、修改和分发
+
+## 👤 作者
+
+喵有爱 ([@miaouai](https://github.com/miaouai))
 
 ---
 
-Made with ❤️ by [喵有爱](https://github.com/miaouai)
+**Deployed with ❤️ using Cloudflare Workers**
