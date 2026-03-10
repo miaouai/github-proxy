@@ -8,8 +8,8 @@
 
 ## ✨ 特性
 
-- ✅ 代理所有 GitHub 域名
-- ✅ **新增：静态资源代理（CSS/JS/图片）**
+- ✅ 代理所有 GitHub 相关域名
+- ✅ **新增：通用域名代理（支持任何域名）**
 - ✅ **新增：敏感路径屏蔽（防止钓鱼警告）**
 - ✅ 自动处理重定向链接
 - ✅ CORS 支持
@@ -33,21 +33,23 @@
 
 > 如需访问这些页面，请直接前往 GitHub 官网。
 
-### 🎨 静态资源代理
-新增 `github.githubassets.com` 域名代理，确保页面 CSS/JS 正常加载！
-
-### 📍 改进的 URL 格式
-现在支持明确指定目标域名的访问方式：
+### 🌐 通用域名代理
+**重大改进！** 现在支持代理任意域名（不仅是 GitHub 相关）：
 
 ```
-# 默认代理 github.com
-https://proxy-domain/owner/repo
-
-# 明确指定域名
-https://proxy-domain/github.com/owner/repo
-https://proxy-domain/github.githubassets.com/assets/xxx.css
-https://proxy-domain/avatars.githubusercontent.com/u/xxx
+# 格式：/目标域名/路径 → 代理 目标域名/path
+你的代理域名/any.website.com/page/path
+     ↓
+实际访问 https://any.website.com/page/path
 ```
+
+这样可以代理：
+- GitHub 静态资源（github.githubassets.com）
+- GitHub CDN（avatars.githubusercontent.com, raw.githubusercontent.com 等）
+- **任何其他需要代理的网站**
+
+### 🔗 HTML 链接自动替换
+GitHub 页面中的链接会自动替换为代理域名格式，保持浏览流畅！
 
 ## 🚀 快速部署
 
@@ -65,60 +67,63 @@ wrangler deploy
 
 ## 📝 使用方法
 
-假设你的 Worker 部署在 `https://github.eoser.workers.dev`
+假设你的 Worker 部署在 `https://your-domain.workers.dev`（请替换为你的实际域名）
 
-### 浏览网页
+### 浏览 GitHub 网页
 
 ```
-# GitHub 首页（默认代理 github.com）
-https://github.eoser.workers.dev/
+# GitHub 首页
+https://your-domain.workers.dev/
 
 # 查看仓库
-https://github.eoser.workers.dev/owner/repo
+https://your-domain.workers.dev/owner/repo
 
 # 查看 Issue
-https://github.eoser.workers.dev/owner/repo/issues
-
-# 查看代码文件
-https://github.eoser.workers.dev/owner/repo/blob/main/src.js
+https://your-domain.workers.dev/owner/repo/issues
 
 # 明确指定域名
-https://github.eoser.workers.dev/github.com/owner/repo
+https://your-domain.workers.dev/github.com/owner/repo
 ```
 
-### 代理其他 GitHub 域名
+### 代理其他域名（通用模式）
 
 ```
-# 静态资源（CSS/JS）
-https://github.eoser.workers.dev/github.githubassets.com/assets/xxx.css
+# GitHub 静态资源（CSS/JS/图片）
+https://your-domain.workers.dev/github.githubassets.com/assets/xxx.css
 
-# 头像
-https://github.eoser.workers.dev/avatars.githubusercontent.com/u/xxx
+# GitHub 头像
+https://your-domain.workers.dev/avatars.githubusercontent.com/u/123456
 
 # Raw 文件
-https://github.eoser.workers.dev/raw.githubusercontent.com/owner/repo/main/file.md
+https://your-domain.workers.dev/raw.githubusercontent.com/owner/repo/main/file.md
 
-# API
-https://github.eoser.workers.dev/api.github.com/repos/owner/repo
+# API 调用
+https://your-domain.workers.dev/api.github.com/repos/owner/repo
+
+# 甚至其他网站（实验性功能）
+https://your-domain.workers.dev/example.com/path
 ```
 
 ### Git Clone
 
 ```bash
-git clone https://github.eoser.workers.dev/owner/repo.git
+git clone https://your-domain.workers.dev/owner/repo.git
 ```
 
 ### 下载 Release 文件
 
 ```
 # Release 下载
-https://github.eoser.workers.dev/owner/repo/releases/download/v1.0/release.tar.gz
+https://your-domain.workers.dev/owner/repo/releases/download/v1.0/release.tar.gz
 
 # 源码压缩包
-https://github.eoser.workers.dev/owner/repo/archive/refs/tags/v1.0.tar.gz
+https://your-domain.workers.dev/owner/repo/archive/refs/tags/v1.0.tar.gz
+
+# 明确指定 objects 域名
+https://your-domain.workers.dev/objects.githubusercontent.com/xxx
 ```
 
-## 🌐 代理域名列表
+## 🌐 支持的域名列表
 
 | 原始域名 | 用途 | 代理格式 |
 |----------|------|---------|
@@ -129,6 +134,7 @@ https://github.eoser.workers.dev/owner/repo/archive/refs/tags/v1.0.tar.gz
 | `objects.githubusercontent.com` | Release 文件 | `/objects.githubusercontent.com/path` |
 | `api.github.com` | API | `/api.github.com/path` |
 | `codeload.github.com` | 代码下载 | `/codeload.github.com/path` |
+| **任意域名** | 通用代理 | `/your-domain.com/path` |
 
 ## ⚙️ 配置自定义域名
 
@@ -136,29 +142,30 @@ https://github.eoser.workers.dev/owner/repo/archive/refs/tags/v1.0.tar.gz
 
 | 类型 | 名称 | 内容 |
 |------|------|------|
-| CNAME | github | your-worker.your-account.workers.dev |
+| CNAME | proxy | your-worker.your-account.workers.dev |
 
 访问效果：
 ```
-https://github.yourdomain.com/owner/repo
+https://proxy.yourdomain.com/owner/repo
 ```
 
 ## 🔧 工作原理
 
 ```
-用户 → 代理域名 → Cloudflare Worker → GitHub 服务器 → 返回内容
-         ↓
-    自动处理：
-    1. 屏蔽敏感路径
-    2. 替换链接中的域名
-    3. 处理重定向
+用户请求 → 代理域名 → Cloudflare Worker
+                                    ↓
+                    判断路径格式：
+                    - /owner/repo → github.com
+                    - /domain.xxx/path → domain.xxx (任意域名)
+                                    ↓
+                 转发到目标服务器 → 返回内容 → 重写链接
 ```
 
 ## ⚠️ 注意事项
 
 - 🔒 敏感路径已屏蔽，防止钓鱼警告
 - 📦 Release 下载和静态资源现在可以正常加载
-- 🌐 IP 可能变化，严格检测的流量可能需要等待恢复
+- 🌍 通用域名代理功能可用于任何网站（注意使用合规性）
 - 💡 建议绑定自定义域名以获得更好的稳定性
 
 ## 📄 License

@@ -66,27 +66,23 @@ export default {
       });
     }
 
-    // ============ GitHub 域名配置 ============
-    // 主域名 - 直接代理（访问代理域名时默认转到 github.com）
-    const MAIN_DOMAIN = 'github.com';
-    
-    // GitHub 相关域名列表（用于重定向处理和路径解析）
-    const GITHUB_DOMAINS = {
-      'github.com': true,
-      'www.github.com': true,
-      'github.githubassets.com': true,  // ⭐ 静态资源（CSS/JS/图片）- 关键！
-      'avatars.githubusercontent.com': true,
-      'raw.githubusercontent.com': true,
-      'gist.githubusercontent.com': true,
-      'objects.githubusercontent.com': true,  // Release 文件下载
-      'codeload.github.com': true,
-      'api.github.com': true,
-      'collector.github.com': true,  // 分析统计
-      'clone.githubusercontent.com': true,
-    };
+    // ============ 域名判断 ============
+    // 判断是否是 GitHub 官方域名
+    const GITHUB_DOMAINS = [
+      'github.com',
+      'www.github.com',
+      'github.githubassets.com',
+      'avatars.githubusercontent.com',
+      'raw.githubusercontent.com',
+      'gist.githubusercontent.com',
+      'objects.githubusercontent.com',
+      'codeload.github.com',
+      'api.github.com',
+      'collector.github.com',
+      'clone.githubusercontent.com'
+    ];
 
-    // 判断是否是对 GitHub 域名的直接请求
-    const isGitHubHost = Object.keys(GITHUB_DOMAINS).some(host => 
+    const isGitHubHost = GITHUB_DOMAINS.some(host => 
       incomingHost === host || incomingHost.endsWith('.' + host)
     );
 
@@ -99,26 +95,31 @@ export default {
       targetHost = incomingHost;
     } else {
       // 通过代理域名访问
-      // 解析路径格式：/域名/路径 或 /owner/repo（默认 github.com）
+      // 解析路径格式：/domain/path 或 /owner/repo
+      
+      // 简单判断：路径中是否包含 "."来判断是否是域名格式
       const pathParts = requestPath.split('/').filter(p => p);
       
-      // 检查第一部分是否是已知的 GitHub 域名
-      const firstPart = pathParts[0];
-      let domainPrefix = '';
-      let actualPath = '';
-      
-      if (firstPart && GITHUB_DOMAINS[firstPart]) {
-        // 格式：/domain/path
-        domainPrefix = firstPart;
-        actualPath = '/' + pathParts.slice(1).join('/');
+      if (pathParts.length === 0) {
+        // 根路径，返回 GitHub 首页
+        targetUrl = new URL(`https://github.com${url.search}`);
+        targetHost = 'github.com';
       } else {
-        // 格式：/owner/repo 或其他路径，默认使用 github.com
-        domainPrefix = MAIN_DOMAIN;
-        actualPath = requestPath;
+        const firstPart = pathParts[0];
+        
+        // 判断第一部分是否是"域名格式"（包含点号）
+        if (firstPart.includes('.') && !firstPart.includes('git')) {
+          // 域名格式：/any.domain.com/path → 代理 any.domain.com
+          // 这样可以代理任何域名，不限于 GitHub 域名
+          targetHost = firstPart;
+          const remainingPath = '/' + pathParts.slice(1).join('/');
+          targetUrl = new URL(`https://${targetHost}${remainingPath}${url.search}`);
+        } else {
+          // 普通路径：/owner/repo → 默认 github.com
+          targetHost = 'github.com';
+          targetUrl = new URL(`https://github.com${requestPath}${url.search}`);
+        }
       }
-      
-      targetHost = domainPrefix;
-      targetUrl = new URL(`https://${domainPrefix}${actualPath}${url.search}`);
     }
 
     // ============ 构建转发请求 ============
@@ -147,22 +148,6 @@ export default {
       const response = await fetch(newRequest);
       const responseHeaders = new Headers(response.headers);
 
-      // 处理重定向 - 重写 Location 头
-      if (response.status >= 300 && response.status < 400 && response.headers.has('Location')) {
-        let location = response.headers.get('Location');
-        
-        // 将 GitHub 域名重定向改为代理域名格式
-        Object.keys(GITHUB_DOMAINS).forEach(domain => {
-          // https://domain/path -> https://proxy-domain/domain/path
-          location = location.replace(
-            new RegExp(`https?://${domain.replace(/\./g, '\\.')}`, 'g'),
-            `https://${incomingHost}/${domain}`
-          );
-        });
-        
-        responseHeaders.set('Location', location);
-      }
-
       // 移除可能导致问题的 header
       responseHeaders.delete('Content-Encoding');
       responseHeaders.delete('Transfer-Encoding');
@@ -183,13 +168,12 @@ export default {
       }
 
       // ============ 处理 HTML 内容 ============
-      // 替换 HTML 中的 GitHub 域名链接为代理域名
       const contentType = responseHeaders.get('Content-Type') || '';
       if (contentType.includes('text/html')) {
         let html = await response.text();
         
-        // 替换 GitHub 域名链接
-        Object.keys(GITHUB_DOMAINS).forEach(domain => {
+        // 替换常见 GitHub 域名为代理域名
+        GITHUB_DOMAINS.forEach(domain => {
           const regex = new RegExp(`https?://${domain.replace(/\./g, '\\.')}`, 'g');
           html = html.replace(regex, `https://${incomingHost}/${domain}`);
         });
